@@ -46,6 +46,16 @@ namespace NoClippy
             return ret;
         }
 
+        // Not called for ground targets
+        public delegate void SendActionDelegate(IntPtr a1, byte a2, int action, short sequence, long a5, long a6, long a7, long a8, long a9);
+        public static event SendActionDelegate OnSendAction;
+        private static Hook<SendActionDelegate> SendActionHook;
+        private static void SendActionDetour(IntPtr a1, byte a2, int action, short sequence, long a5, long a6, long a7, long a8, long a9)
+        {
+            SendActionHook.Original(a1, a2, action, sequence, a5, a6, a7, a8, a9);
+            OnSendAction?.Invoke(a1, a2, action, sequence, a5, a6, a7, a8, a9);
+        }
+
         private static bool invokeCastInterrupt = false;
         public delegate void CastBeginDelegate(ulong objectID, IntPtr packetData);
         public static event CastBeginDelegate OnCastBegin;
@@ -112,22 +122,24 @@ namespace NoClippy
         {
             actionManager = (Structures.ActionManager*)ActionManager.Instance();
 
-            UseActionHook = new Hook<UseActionDelegate>((IntPtr)ActionManager.fpUseAction, UseActionDetour);
-            UseActionLocationHook = new Hook<UseActionLocationDelegate>((IntPtr)ActionManager.fpUseActionLocation, UseActionLocationDetour);
+            UseActionHook = new Hook<UseActionDelegate>(DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 89 9F 14 79 02 00"), UseActionDetour);
+            UseActionLocationHook = new Hook<UseActionLocationDelegate>(DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? E9 ?? ?? ?? ?? 81 FB FB 1C 00 00"), UseActionLocationDetour);
+            SendActionHook = new Hook<SendActionDelegate>(DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? E9 ?? ?? ?? ?? F3 0F 10 3D ?? ?? ?? ?? 48 8D 4D BF"), SendActionDetour); // Found inside UseActionLocation
             CastBeginHook = new Hook<CastBeginDelegate>(DalamudApi.SigScanner.ScanText("40 55 56 48 81 EC ?? ?? ?? ?? 48 8B EA"), CastBeginDetour); // Bad sig, found within ActorCast packet
-            CastInterruptHook = new Hook<CastInterruptDelegate>(DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 8B 4B 28 8D 41 FF"), CastInterruptDetour); // Found inside ActorControl (15) packet
+            CastInterruptHook = new Hook<CastInterruptDelegate>(DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? EB 30 0F 57 C0"), CastInterruptDetour); // Found inside ActorControl (15) packet
             ReceiveActionEffectHook = new Hook<ReceiveActionEffectDelegate>(DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? 48 8B 8D F0 03 00 00"), ReceiveActionEffectDetour); // 4C 89 44 24 18 53 56 57 41 54 41 57 48 81 EC ?? 00 00 00 8B F9
             UpdateStatusHook = new Hook<UpdateStatusDelegate>(DalamudApi.SigScanner.ScanText("E8 ?? ?? ?? ?? FF C6 48 8D 5B 0C"), UpdateStatusDetour);
 
             defaultClientAnimationLockPtr = DalamudApi.SigScanner.ScanModule("33 33 B3 3E ?? ?? ?? ?? ?? ?? 00 00 00 3F") + 0xA;
 
-            // This is normally 0.5f, but I'm increasing it to NoClippy's minimum to prevent any weird discrepancies on high ping
-            DefaultClientAnimationLock = 0.64f;
+            // This is normally 0.5f but it causes the client to be sanity checked at high ping, so I'm increasing it to see clips better and see higher pings more accurately
+            DefaultClientAnimationLock = 0.6f;
 
             DalamudApi.GameNetwork.NetworkMessage += NetworkMessage;
 
             UseActionHook.Enable();
             UseActionLocationHook.Enable();
+            SendActionHook.Enable();
             CastBeginHook.Enable();
             CastInterruptHook.Enable();
             ReceiveActionEffectHook.Enable();
@@ -145,6 +157,8 @@ namespace NoClippy
             OnUseAction = null;
             UseActionLocationHook?.Dispose();
             OnUseActionLocation = null;
+            SendActionHook.Dispose();
+            OnSendAction = null;
             CastBeginHook.Dispose();
             OnCastBegin = null;
             CastInterruptHook.Dispose();

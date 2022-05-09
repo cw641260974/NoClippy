@@ -10,6 +10,11 @@ namespace NoClippy
                 ImGui.SetTooltip(s);
         }
 
-        public static void Draw() => ConfigUI.Draw();
+        public static void Draw()
+        {
+            StatsUI.Draw();
+            ConfigUI.Draw();
+        }
     }
+
 }
